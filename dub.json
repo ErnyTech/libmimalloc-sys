@@ -1,0 +1,57 @@
+{
+    "name": "libmimalloc-sys",
+    "description": "C dependency for neomimalloc",
+	"authors": [
+		"Microsoft Corporation",
+		"Daan Leijen"
+	],
+	"targetType": "sourceLibrary",
+	"copyright": "Copyright (c) 2019 Microsoft Corporation, Daan Leijen",
+	"license": "MIT",
+	"systemDependencies" : "libc and thread support (e.g. glibc and pthread), to build also needs for cmake and a C toolchain",
+	"configurations": [
+		{
+			"name" : "standard",
+			"preBuildCommands-posix" : [
+                "rm -rf $PACKAGE_DIR/build",
+				"cd $PACKAGE_DIR && mkdir build && cd build && cmake -DMI_OVERRIDE=OFF .. && cmake --build ."
+			],
+			"sourceFiles" : [
+                "$PACKAGE_DIR/build/libmimalloc.a",
+			]
+		},
+		{
+			"name" : "secure",
+			"preBuildCommands-posix" : [
+                "rm -rf $PACKAGE_DIR/build",
+				"cd $PACKAGE_DIR && $PACKAGE_DIRmkdir build && cd build && cmake -DMI_OVERRIDE=OFF -DMI_SECURE=ON .. && cmake --build ."
+			],
+			"sourceFiles" : [
+                "$PACKAGE_DIR/build/libmimalloc.a"
+			]
+		},
+		{
+			"name" : "override-malloc",
+			"preBuildCommands-posix" : [
+                "rm -rf $PACKAGE_DIR/build",
+				"cd $PACKAGE_DIR && mkdir build && cd build && cmake -DMI_OVERRIDE=ON .. && cmake --build ."
+			],
+			"postBuildCommands-posix" : [
+                "rm -rf $PACKAGE_DIR/build"
+			],
+			"sourceFiles" : [
+                "$PACKAGE_DIR/build/libmimalloc.a"
+			]
+		},
+		{
+			"name" : "override-malloc-secure",
+			"preBuildCommands-posix" : [
+                "rm -rf $PACKAGE_DIR/build",
+				"cd $PACKAGE_DIR && cd mkdir build && cd build && cmake -DMI_OVERRIDE=ON -DMI_SECURE=ON .. && cmake --build ."
+			],
+			"sourceFiles" : [
+                "$PACKAGE_DIR/build/libmimalloc.a"
+			]
+		}
+	]
+}
