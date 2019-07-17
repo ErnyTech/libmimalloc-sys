@@ -14,7 +14,7 @@ const mi_page_t _mi_page_empty = {
   0, false, false, {0},
   0, 0,
   NULL, 0, 0,   // free, used, cookie
-  NULL, 0, {0},
+  NULL, 0, 0,
   0, NULL, NULL, NULL
   #if (MI_INTPTR_SIZE==4)
   , { NULL }
@@ -91,7 +91,7 @@ mi_decl_thread mi_heap_t* _mi_heap_default = (mi_heap_t*)&_mi_heap_empty;
 static mi_tld_t tld_main = {
   0,
   &_mi_heap_main,
-  { { NULL, NULL }, 0, 0, 0, 0, {NULL,NULL}, tld_main_stats }, // segments
+  { { NULL, NULL }, {NULL ,NULL}, 0, 0, 0, 0, {NULL,NULL}, tld_main_stats }, // segments
   { 0, NULL, NULL, 0, tld_main_stats },              // os
   { MI_STATS_NULL }                                  // stats
 };
