@@ -31,26 +31,31 @@ typedef struct mi_option_desc_s {
   const char* name;   // option name without `mimalloc_` prefix
 } mi_option_desc_t;
 
-static mi_option_desc_t options[_mi_option_last] = 
+static mi_option_desc_t options[_mi_option_last] =
 {
   // stable options
   { 0, UNINIT, "show_stats" },
   { MI_DEBUG, UNINIT, "show_errors" },
   { 0, UNINIT, "verbose" },
 
+  #if MI_SECURE
+  { MI_SECURE, INITIALIZED, "secure" }, // in a secure build the environment setting is ignored
+  #else
+  { 0, UNINIT, "secure" },
+  #endif
+
   // the following options are experimental and not all combinations make sense.
+  { 1, UNINIT, "eager_commit" },        // note: if eager_region_commit is on, this should be on too.
+  #ifdef _WIN32   // and BSD?
+  { 0, UNINIT, "eager_region_commit" }, // don't commit too eagerly on windows (just for looks...)
+  #else
+  { 1, UNINIT, "eager_region_commit" },
+  #endif
+  { 0, UNINIT, "large_os_pages" },      // use large OS pages, use only with eager commit to prevent fragmentation of VMA's
   { 0, UNINIT, "page_reset" },
   { 0, UNINIT, "cache_reset" },
-  { 1, UNINIT, "eager_commit" },     
-  { 1, UNINIT, "eager_region_commit" }, // eager_commit should be on when eager_region_commit is on 
-  { 0, UNINIT, "large_os_pages" },      // use large OS pages, use only with eager commit to prevent fragmentation of VMA's
-  { 0, UNINIT, "reset_decommits" },     
-  { 0, UNINIT, "reset_discards" },   
-  #if MI_SECURE
-  { MI_SECURE, INITIALIZED, "secure" } // in a secure build the environment setting is ignored
-  #else
-  { 0, UNINIT, "secure" }              
-  #endif
+  { 0, UNINIT, "reset_decommits" },     // note: cannot enable this if secure is on
+  { 0, UNINIT, "reset_discards" }       // note: cannot enable this if secure is on
 };
 
 static void mi_option_init(mi_option_desc_t* desc);
@@ -58,7 +63,7 @@ static void mi_option_init(mi_option_desc_t* desc);
 long mi_option_get(mi_option_t option) {
   mi_assert(option >= 0 && option < _mi_option_last);
   mi_option_desc_t* desc = &options[option];
-  if (desc->init == UNINIT) {
+  if (mi_unlikely(desc->init == UNINIT)) {
     mi_option_init(desc);
     if (option != mi_option_verbose) {
       _mi_verbose_message("option '%s': %ld\n", desc->name, desc->value);
@@ -183,7 +188,8 @@ static void mi_option_init(mi_option_desc_t* desc) {
   #pragma warning(suppress:4996)
   char* s = getenv(buf);
   if (s == NULL) {
-    for (size_t i = 0; i < strlen(buf); i++) {
+    size_t buf_size = strlen(buf);
+    for (size_t i = 0; i < buf_size; i++) {
       buf[i] = toupper(buf[i]);
     }
     #pragma warning(suppress:4996)
@@ -191,7 +197,8 @@ static void mi_option_init(mi_option_desc_t* desc) {
   }
   if (s != NULL) {
     mi_strlcpy(buf, s, sizeof(buf));
-    for (size_t i = 0; i < strlen(buf); i++) {
+    size_t buf_size = strlen(buf); // TODO: use strnlen?
+    for (size_t i = 0; i < buf_size; i++) {
       buf[i] = toupper(buf[i]);
     }
     if (buf[0]==0 || strstr("1;TRUE;YES;ON", buf) != NULL) {
