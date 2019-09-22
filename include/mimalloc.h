@@ -52,9 +52,9 @@ terms of the MIT license. A copy of the license can be found in the file
   #define mi_attr_alloc_size2(s1,s2)
   #else
   #define mi_attr_alloc_size(s)       __attribute__((alloc_size(s)))
-  #define mi_attr_alloc_size2(s1,s2)  __attribute__((alloc_size(s1,s2)))  
-  #define mi_cdecl                    // leads to warnings... __attribute__((cdecl))  
+  #define mi_attr_alloc_size2(s1,s2)  __attribute__((alloc_size(s1,s2)))
   #endif
+  #define mi_cdecl                    // leads to warnings... __attribute__((cdecl))
 #else
   #define mi_decl_thread              __thread
   #define mi_decl_export
@@ -62,16 +62,15 @@ terms of the MIT license. A copy of the license can be found in the file
   #define mi_attr_malloc
   #define mi_attr_alloc_size(s)
   #define mi_attr_alloc_size2(s1,s2)
-  #define mi_cdecl                   
+  #define mi_cdecl
 #endif
 
 // ------------------------------------------------------
 // Includes
 // ------------------------------------------------------
 
-#include <stdlib.h>     // size_t, malloc etc.
+#include <stddef.h>     // size_t
 #include <stdbool.h>    // bool
-#include <stdio.h>      // FILE
 
 #ifdef __cplusplus
 extern "C" {
@@ -108,18 +107,23 @@ mi_decl_export mi_decl_allocator void* mi_reallocf(void* p, size_t newsize)     
 mi_decl_export size_t mi_usable_size(const void* p)   mi_attr_noexcept;
 mi_decl_export size_t mi_good_size(size_t size)       mi_attr_noexcept;
 
+typedef void (mi_deferred_free_fun)(bool force, unsigned long long heartbeat);
+mi_decl_export void mi_register_deferred_free(mi_deferred_free_fun* deferred_free) mi_attr_noexcept;
+
+typedef void (mi_output_fun)(const char* msg);
+mi_decl_export void mi_register_output(mi_output_fun* out) mi_attr_noexcept;
+
 mi_decl_export void mi_collect(bool force)    mi_attr_noexcept;
-mi_decl_export void mi_stats_print(FILE* out) mi_attr_noexcept;
-mi_decl_export void mi_stats_reset(void)      mi_attr_noexcept;
 mi_decl_export int  mi_version(void)          mi_attr_noexcept;
+mi_decl_export void mi_stats_reset(void)      mi_attr_noexcept;
+mi_decl_export void mi_stats_merge(void)      mi_attr_noexcept;
+mi_decl_export void mi_stats_print(mi_output_fun* out) mi_attr_noexcept;
 
 mi_decl_export void mi_process_init(void)     mi_attr_noexcept;
 mi_decl_export void mi_thread_init(void)      mi_attr_noexcept;
 mi_decl_export void mi_thread_done(void)      mi_attr_noexcept;
-mi_decl_export void mi_thread_stats_print(FILE* out) mi_attr_noexcept;
+mi_decl_export void mi_thread_stats_print(mi_output_fun* out) mi_attr_noexcept;
 
-typedef void (mi_deferred_free_fun)(bool force, unsigned long long heartbeat);
-mi_decl_export void mi_register_deferred_free(mi_deferred_free_fun* deferred_free) mi_attr_noexcept;
 
 // ------------------------------------------------------
 // Aligned allocation
@@ -196,6 +200,7 @@ typedef bool (mi_cdecl mi_block_visit_fun)(const mi_heap_t* heap, const mi_heap_
 mi_decl_export bool mi_heap_visit_blocks(const mi_heap_t* heap, bool visit_all_blocks, mi_block_visit_fun* visitor, void* arg);
 
 mi_decl_export bool mi_is_in_heap_region(const void* p) mi_attr_noexcept;
+mi_decl_export int  mi_reserve_huge_os_pages(size_t pages, double max_secs) mi_attr_noexcept;
 
 // ------------------------------------------------------
 // Convenience
@@ -220,39 +225,46 @@ mi_decl_export bool mi_is_in_heap_region(const void* p) mi_attr_noexcept;
 
 typedef enum mi_option_e {
   // stable options
-  mi_option_show_stats,
   mi_option_show_errors,
+  mi_option_show_stats,
   mi_option_verbose,
   // the following options are experimental
   mi_option_secure,
   mi_option_eager_commit,
   mi_option_eager_region_commit,
-  mi_option_large_os_pages,      // implies eager commit
+  mi_option_large_os_pages,         // implies eager commit
+  mi_option_reserve_huge_os_pages,
+  mi_option_segment_cache,
   mi_option_page_reset,
   mi_option_cache_reset,
   mi_option_reset_decommits,
-  mi_option_reset_discards,
+  mi_option_eager_commit_delay,
+  mi_option_segment_reset,
+  mi_option_os_tag,
   _mi_option_last
 } mi_option_t;
 
 
 mi_decl_export bool  mi_option_is_enabled(mi_option_t option);
-mi_decl_export void  mi_option_enable(mi_option_t option, bool enable);
-mi_decl_export void  mi_option_enable_default(mi_option_t option, bool enable);
+mi_decl_export void  mi_option_enable(mi_option_t option);
+mi_decl_export void  mi_option_disable(mi_option_t option);
+mi_decl_export void  mi_option_set_enabled(mi_option_t option, bool enable);
+mi_decl_export void  mi_option_set_enabled_default(mi_option_t option, bool enable);
 
 mi_decl_export long  mi_option_get(mi_option_t option);
 mi_decl_export void  mi_option_set(mi_option_t option, long value);
 mi_decl_export void  mi_option_set_default(mi_option_t option, long value);
 
 
-// ----------------------------------------------------------------------------------
-// mi prefixed implementations of various posix, unix, and C++ allocation functions.
-// -----------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------------------------
+// "mi" prefixed implementations of various posix, Unix, Windows, and C++ allocation functions.
+// (This can be convenient when providing overrides of these functions as done in `mimalloc-override.h`.)
+// -------------------------------------------------------------------------------------------------------
 
-mi_decl_export void*  mi_recalloc(void* p, size_t count, size_t size) mi_attr_noexcept;
 mi_decl_export size_t mi_malloc_size(const void* p) mi_attr_noexcept;
 mi_decl_export size_t mi_malloc_usable_size(const void *p) mi_attr_noexcept;
 mi_decl_export void   mi_cfree(void* p) mi_attr_noexcept;
+mi_decl_export void*  mi__expand(void* p, size_t newsize) mi_attr_noexcept;
 
 mi_decl_export int mi_posix_memalign(void** p, size_t alignment, size_t size) mi_attr_noexcept;
 mi_decl_export int mi__posix_memalign(void** p, size_t alignment, size_t size) mi_attr_noexcept;
@@ -262,6 +274,15 @@ mi_decl_export mi_decl_allocator void* mi_valloc(size_t size) mi_attr_noexcept m
 mi_decl_export mi_decl_allocator void* mi_pvalloc(size_t size) mi_attr_noexcept mi_attr_malloc mi_attr_alloc_size(1);
 mi_decl_export mi_decl_allocator void* mi_aligned_alloc(size_t alignment, size_t size) mi_attr_noexcept mi_attr_malloc mi_attr_alloc_size(2);
 mi_decl_export mi_decl_allocator void* mi_reallocarray(void* p, size_t count, size_t size) mi_attr_noexcept mi_attr_malloc mi_attr_alloc_size2(2,3);
+
+mi_decl_export void* mi_recalloc(void* p, size_t count, size_t size) mi_attr_noexcept;
+mi_decl_export void* mi_aligned_recalloc(void* p, size_t size, size_t newcount, size_t alignment) mi_attr_noexcept;
+mi_decl_export void* mi_aligned_offset_recalloc(void* p, size_t size, size_t newcount, size_t alignment, size_t offset) mi_attr_noexcept;
+
+mi_decl_export unsigned short* mi_wcsdup(const unsigned short* s) mi_attr_noexcept;
+mi_decl_export unsigned char*  mi_mbsdup(const unsigned char* s)  mi_attr_noexcept;
+mi_decl_export int  mi_dupenv_s(char** buf, size_t* size, const char* name) mi_attr_noexcept;
+mi_decl_export int  mi_wdupenv_s(unsigned short** buf, size_t* size, const unsigned short* name) mi_attr_noexcept;
 
 mi_decl_export void mi_free_size(void* p, size_t size) mi_attr_noexcept;
 mi_decl_export void mi_free_size_aligned(void* p, size_t size, size_t alignment) mi_attr_noexcept;

@@ -4,12 +4,13 @@ include("cmake/mimalloc-config-version.cmake")
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
-option(MI_OVERRIDE   "Override the standard malloc interface" ON)
-option(MI_INTERPOSE  "Use interpose to override standard malloc on macOS" ON)
-option(MI_SEE_ASM    "Generate assembly files" OFF)
-option(MI_CHECK_FULL "Use full internal invariant checking in DEBUG mode" OFF)
-option(MI_USE_CXX    "Use the C++ compiler to compile the library" OFF)
-option(MI_SECURE     "Use security mitigations (like guard pages and randomization)" OFF)
+option(MI_OVERRIDE    "Override the standard malloc interface" ON)
+option(MI_INTERPOSE   "Use interpose to override standard malloc on macOS" ON)
+option(MI_SEE_ASM     "Generate assembly files" OFF)
+option(MI_CHECK_FULL  "Use full internal invariant checking in DEBUG mode" OFF)
+option(MI_USE_CXX     "Use the C++ compiler to compile the library" OFF)
+option(MI_SECURE      "Use security mitigations (like guard pages and randomization)" OFF)
+option(MI_BUILD_TESTS "Build test executables" ON)
 
 set(mi_install_dir "lib/mimalloc-${mi_version}")
 
@@ -25,7 +26,6 @@ set(mi_sources
     src/heap.c
     src/options.c
     src/init.c)
-
 
 # Set default build type
 if (NOT CMAKE_BUILD_TYPE)
@@ -43,6 +43,11 @@ endif()
 if("${CMAKE_BINARY_DIR}" MATCHES ".*(S|s)ecure$")
   set(MI_SECURE "ON")
 endif()
+
+if(CMAKE_C_COMPILER_ID MATCHES "MSVC")
+  set(MI_USE_CXX "ON")
+endif()
+
 
 # Options
 if(MI_OVERRIDE MATCHES "ON")
@@ -87,10 +92,11 @@ if(CMAKE_C_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
   if(CMAKE_C_COMPILER_ID MATCHES "GNU")
     list(APPEND mi_cflags -Wno-invalid-memory-model)
     list(APPEND mi_cflags -fvisibility=hidden)
+    list(APPEND mi_cflags -fbranch-target-load-optimize)
   endif()
 endif()
 
-if(NOT(CMAKE_BUILD_TYPE MATCHES "Release|RelWithDebInfo"))
+if(NOT(CMAKE_BUILD_TYPE MATCHES "Release|release|RelWithDebInfo|relwithdebinfo"))
   string(TOLOWER "${CMAKE_BUILD_TYPE}" build_type)
   set(mi_basename "mimalloc-${build_type}")
 else()
@@ -108,6 +114,10 @@ if(WIN32)
   list(APPEND mi_libraries psapi shell32 user32)
 else()
   list(APPEND mi_libraries pthread)
+  find_library(LIBRT rt)
+  if(LIBRT)
+    list(APPEND mi_libraries ${LIBRT})
+  endif()
 endif()
 
 # -----------------------------------------------------------------------------
@@ -120,14 +130,28 @@ add_library(mimalloc SHARED ${mi_sources})
 set_target_properties(mimalloc PROPERTIES VERSION ${mi_version} NO_SONAME "YES" OUTPUT_NAME ${mi_basename} )
 target_compile_definitions(mimalloc PRIVATE ${mi_defines} MI_SHARED_LIB MI_SHARED_LIB_EXPORT)
 target_compile_options(mimalloc PRIVATE ${mi_cflags})
+target_link_libraries(mimalloc PUBLIC ${mi_libraries})
 target_include_directories(mimalloc PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${mi_install_dir}/include>
 )
-target_link_libraries(mimalloc PUBLIC ${mi_libraries})
+if(WIN32)
+  # On windows copy the mimalloc redirection dll too.
+  target_link_libraries(mimalloc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/bin/mimalloc-redirect.lib)
+  add_custom_command(TARGET mimalloc POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_CURRENT_SOURCE_DIR}/bin/mimalloc-redirect.dll" $<TARGET_FILE_DIR:mimalloc>
+    COMMENT "Copy mimalloc-redirect.dll to output directory")
+endif()
 
 # static library
 add_library(mimalloc-static STATIC ${mi_sources})
+target_compile_definitions(mimalloc-static PRIVATE ${mi_defines} MI_STATIC_LIB)
+target_compile_options(mimalloc-static PRIVATE ${mi_cflags})
+target_link_libraries(mimalloc-static PUBLIC ${mi_libraries})
+target_include_directories(mimalloc-static PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${mi_install_dir}/include>
+)
 if(WIN32)
   # When building both static and shared libraries on Windows, a static library should use a
   # different output name to avoid the conflict with the import library of a shared one.
@@ -136,19 +160,12 @@ if(WIN32)
 else()
   set_target_properties(mimalloc-static PROPERTIES OUTPUT_NAME ${mi_basename})
 endif()
-target_compile_definitions(mimalloc-static PRIVATE ${mi_defines} MI_STATIC_LIB)
-target_compile_options(mimalloc-static PRIVATE ${mi_cflags})
-
-target_include_directories(mimalloc-static PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:${mi_install_dir}/include>
-)
-target_link_libraries(mimalloc-static PUBLIC ${mi_libraries})
 
 # install static and shared library, and the include files
 install(TARGETS mimalloc EXPORT mimalloc DESTINATION ${mi_install_dir} LIBRARY NAMELINK_SKIP)
 install(TARGETS mimalloc-static EXPORT mimalloc DESTINATION ${mi_install_dir})
 install(FILES include/mimalloc.h DESTINATION ${mi_install_dir}/include)
+install(FILES include/mimalloc-override.h DESTINATION ${mi_install_dir}/include)
 install(FILES cmake/mimalloc-config.cmake DESTINATION ${mi_install_dir}/cmake)
 install(FILES cmake/mimalloc-config-version.cmake DESTINATION ${mi_install_dir}/cmake)
 install(EXPORT mimalloc DESTINATION ${mi_install_dir}/cmake)
@@ -175,21 +192,24 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/mimalloc-obj.dir/src/static
 # -----------------------------------------------------------------------------
 # API surface testing
 # -----------------------------------------------------------------------------
-add_executable(mimalloc-test-api test/test-api.c)
-target_compile_definitions(mimalloc-test-api PRIVATE ${mi_defines})
-target_compile_options(mimalloc-test-api PRIVATE ${mi_cflags})
-target_include_directories(mimalloc-test-api PRIVATE include)
-target_link_libraries(mimalloc-test-api PRIVATE mimalloc-static)
 
-add_executable(mimalloc-test-stress test/test-stress.c)
-target_compile_definitions(mimalloc-test-stress PRIVATE ${mi_defines})
-target_compile_options(mimalloc-test-stress PRIVATE ${mi_cflags})
-target_include_directories(mimalloc-test-stress PRIVATE include)
-target_link_libraries(mimalloc-test-stress PRIVATE mimalloc-static)
+if (MI_BUILD_TESTS MATCHES "ON")
+  add_executable(mimalloc-test-api test/test-api.c)
+  target_compile_definitions(mimalloc-test-api PRIVATE ${mi_defines})
+  target_compile_options(mimalloc-test-api PRIVATE ${mi_cflags})
+  target_include_directories(mimalloc-test-api PRIVATE include)
+  target_link_libraries(mimalloc-test-api PRIVATE mimalloc-static ${mi_libraries})
 
-enable_testing()
-add_test(test_api, mimalloc-test-api)
-add_test(test_stress, mimalloc-test-stress)
+  add_executable(mimalloc-test-stress test/test-stress.c)
+  target_compile_definitions(mimalloc-test-stress PRIVATE ${mi_defines})
+  target_compile_options(mimalloc-test-stress PRIVATE ${mi_cflags})
+  target_include_directories(mimalloc-test-stress PRIVATE include)
+  target_link_libraries(mimalloc-test-stress PRIVATE mimalloc-static ${mi_libraries})
+
+  enable_testing()
+  add_test(test_api, mimalloc-test-api)
+  add_test(test_stress, mimalloc-test-stress)
+endif()
 
 # -----------------------------------------------------------------------------
 # Set override properties

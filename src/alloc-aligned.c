@@ -8,7 +8,7 @@ terms of the MIT license. A copy of the license can be found in the file
 #include "mimalloc.h"
 #include "mimalloc-internal.h"
 
-#include <string.h>  // memset
+#include <string.h>  // memset, memcpy
 
 // ------------------------------------------------------
 // Aligned Allocation
@@ -43,10 +43,10 @@ static void* mi_heap_malloc_zero_aligned_at(mi_heap_t* heap, size_t size, size_t
   if (p == NULL) return NULL;
 
   // .. and align within the allocation
-  _mi_ptr_page(p)->flags.has_aligned = true;
   uintptr_t adjust = alignment - (((uintptr_t)p + offset) % alignment);
   mi_assert_internal(adjust % sizeof(uintptr_t) == 0);
   void* aligned_p = (adjust == alignment ? p : (void*)((uintptr_t)p + adjust));
+  if (aligned_p != p) mi_page_set_has_aligned(_mi_ptr_page(p), true);
   mi_assert_internal(((uintptr_t)aligned_p + offset) % alignment == 0);
   mi_assert_internal( p == _mi_page_ptr_unalign(_mi_ptr_segment(aligned_p),_mi_ptr_page(aligned_p),aligned_p) );
   return aligned_p;
@@ -149,4 +149,15 @@ void* mi_realloc_aligned_at(void* p, size_t newsize, size_t alignment, size_t of
 
 void* mi_realloc_aligned(void* p, size_t newsize, size_t alignment) mi_attr_noexcept {
   return mi_heap_realloc_aligned(mi_get_default_heap(), p, newsize, alignment);
+}
+
+void* mi_aligned_offset_recalloc(void* p, size_t size, size_t newcount, size_t alignment, size_t offset) mi_attr_noexcept {
+  size_t newsize;
+  if (mi_mul_overflow(size,newcount,&newsize)) return NULL;
+  return mi_heap_realloc_zero_aligned_at(mi_get_default_heap(), p, newsize, alignment, offset, true );
+}
+void* mi_aligned_recalloc(void* p, size_t size, size_t newcount, size_t alignment) mi_attr_noexcept {
+  size_t newsize;
+  if (mi_mul_overflow(size, newcount, &newsize)) return NULL;
+  return mi_heap_realloc_zero_aligned(mi_get_default_heap(), p, newsize, alignment, true );
 }
